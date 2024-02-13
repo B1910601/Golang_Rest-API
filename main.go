@@ -8,19 +8,39 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
 
 // định nghĩa một kiểu dữ liệu có các trường thông tin cơ bản liên quan đến một mục công việc,
 // và sử dụng các tag json để chỉ định tên của các trường khi chuyển đổi thành dữ liệu JSON.
 type TodoItems struct {
-	Id          int        `json:"id"`
-	Title       string     `json:"title"`
-	Description string     `json:"description"`
-	Status      string     `json:"status"`
-	CreatedAt   *time.Time `json:"createdAt"`
-	UpdatedAt   *time.Time `json:"updatedAt"`
+	Id          int        `json:"id" gorm:"column:id;"`
+	Title       string     `json:"title" gorm:"column:title;"`
+	Description string     `json:"description" gorm:"column:description;"`
+	Status      string     `json:"status" gorm:"column:status;"`
+	CreatedAt   *time.Time `json:"createdAt" gorm:"column:created_at;"`
+	UpdatedAt   *time.Time `json:"updatedAt" gorm:"column:update_at;"`
 }
+
+func (TodoItems) TableName() string { return "todo_item" }
+
+type TodoItemCreate struct {
+	Id          int    `json:"-" gorm:"column:id;"`
+	Title       string `json:"title" gorm:"column:title;"`
+	Description string `json:"description" gorm:"column:description;"`
+	//Status      string `json:"status"  gorm:"column:description"`
+}
+
+func (TodoItemCreate) TableName() string { return TodoItems{}.TableName() }
+
+type TodoItemUpdate struct {
+	Title       *string `json:"title" gorm:"column:title;"`
+	Description *string `json:"description" gorm:"column:description;"`
+	Status      *string `json:"status"  gorm:"column:description"`
+}
+
+func (TodoItemUpdate) TableName() string { return TodoItems{}.TableName() }
 
 func main() {
 	//ket noi voi csdl
@@ -31,22 +51,126 @@ func main() {
 		log.Fatalln(err)
 	}
 	fmt.Println(db)
-	now := time.Now().UTC()
-	item := TodoItems{
-		Id:          1,
-		Title:       "This is item 1",
-		Description: "description 1",
-		Status:      "Doing",
-		CreatedAt:   &now,
-		UpdatedAt:   nil,
-	}
 
 	r := gin.Default()
+	//CRUD
+	v1 := r.Group("/v1")
+	{
+		items := v1.Group("/items")
+		{
+			items.POST("", CreateItems(db))
+			items.GET("")
+			items.GET("/:id", GetItems(db))
+			items.PATCH("/:id", UpdateItems(db))
+			items.DELETE("/:id", DeleteItems(db))
+
+		}
+	}
+
 	r.GET("/ping", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{
-			"message": item,
+			"message": "pong",
 		})
 	})
 	r.Run(":3000")
 
+}
+
+// hàm xử lý yêu cầu HTTP, có khả năng truy cập vào cơ sở dữ liệu thông qua đối tượng *gorm.DB
+func CreateItems(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+		var data TodoItemCreate //sẽ nhận dữ liệu từ yêu cầu HTTP và biến đổi nó thành json
+		if err := c.ShouldBind(&data); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+		if err := db.Create(&data).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": data.Id,
+		})
+	}
+
+}
+func GetItems(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+		var data TodoItems
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+		//data.Id = id
+		if err := db.Where("id = ?", id).First(&data).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": data,
+		})
+	}
+}
+func UpdateItems(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+		var data TodoItemUpdate
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+		if err := c.ShouldBind(&data); err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		if err := db.Where("id = ?", id).Updates(&data).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": true,
+		})
+	}
+}
+func DeleteItems(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+
+		id, err := strconv.Atoi(c.Param("id"))
+		if err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		if err := db.Table(TodoItems{}.TableName()).Where("id = ?", id).Delete(nil).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": true,
+		})
+	}
 }
