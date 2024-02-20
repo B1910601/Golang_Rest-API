@@ -12,8 +12,6 @@ import (
 	"time"
 )
 
-// định nghĩa một kiểu dữ liệu có các trường thông tin cơ bản liên quan đến một mục công việc,
-// và sử dụng các tag json để chỉ định tên của các trường khi chuyển đổi thành dữ liệu JSON.
 type TodoItems struct {
 	Id          int        `json:"id" gorm:"column:id;"`
 	Title       string     `json:"title" gorm:"column:title;"`
@@ -59,7 +57,7 @@ func main() {
 		items := v1.Group("/items")
 		{
 			items.POST("", CreateItems(db))
-			items.GET("")
+			items.GET("", ListItems(db))
 			items.GET("/:id", GetItems(db))
 			items.PATCH("/:id", UpdateItems(db))
 			items.DELETE("/:id", DeleteItems(db))
@@ -76,10 +74,9 @@ func main() {
 
 }
 
-// hàm xử lý yêu cầu HTTP, có khả năng truy cập vào cơ sở dữ liệu thông qua đối tượng *gorm.DB
 func CreateItems(db *gorm.DB) func(*gin.Context) {
 	return func(c *gin.Context) {
-		var data TodoItemCreate //sẽ nhận dữ liệu từ yêu cầu HTTP và biến đổi nó thành json
+		var data TodoItemCreate
 		if err := c.ShouldBind(&data); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{
 				"err": err.Error(),
@@ -173,4 +170,20 @@ func DeleteItems(db *gorm.DB) func(*gin.Context) {
 			"data": true,
 		})
 	}
+}
+func ListItems(db *gorm.DB) func(*gin.Context) {
+	return func(c *gin.Context) {
+		var result []TodoItems
+		if err := db.Order("id desc").Find(&result).Error; err != nil {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"err": err.Error(),
+			})
+			return
+		}
+
+		c.JSON(http.StatusOK, gin.H{
+			"data": result,
+		})
+	}
+
 }
